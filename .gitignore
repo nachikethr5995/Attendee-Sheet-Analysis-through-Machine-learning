@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+venv_wsl/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model files (large files - uncomment if you don't want to track them)
+# models/
+# *.pt
+# *.pth
+# *.onnx
+
+# Storage directories
+storage/raw/
+storage/intermediate/
+storage/output/
+storage/processed/
+storage/processed_advanced/
+storage/processed_basic/
+storage/debug/
+storage/signatures/
+
+# Dataset cache
+*.cache
+dataset/train/
+dataset/valid/
+dataset/labels_backup_*/
+
+# Test results
+obb_test_results/
+runs/
+smoke_test/
+
+# Environment variables
+.env
+.env.local
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Temporary files
+*.tmp
+*.temp
+=4.30.0
+
+# Node modules (if any)
+node_modules/
+

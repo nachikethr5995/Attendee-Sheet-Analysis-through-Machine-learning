@@ -1,0 +1,34 @@
+# Dataset configuration for YOLOv8 layout detection
+# Copy this file to dataset.yaml and update paths
+
+# Dataset root directory (absolute or relative to this file)
+path: ./dataset
+
+# Training images (relative to path)
+train: images/train
+
+# Validation images (relative to path)
+val: images/val
+
+# Test images (optional, relative to path)
+test: images/test
+
+# Class names (FIXED - DO NOT CHANGE INDICES)
+# These mappings must remain consistent across all training runs
+names:
+  0: text_block
+  1: table
+  2: signature
+  3: checkbox
+
+# Number of classes
+nc: 4
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,10 @@
+train: train/images
+val: valid/images
+
+
+names: 
+  0: Checkbox
+  1: Handwritten
+  2: Signature
+  3: Table
+  4: Text_box

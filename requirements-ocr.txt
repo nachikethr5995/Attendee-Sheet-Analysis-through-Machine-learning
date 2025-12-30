@@ -1,0 +1,18 @@
+# OCR Pipeline Dependencies
+# These are in addition to the base requirements.txt
+
+# PaddleOCR (already in base requirements)
+# paddlepaddle
+# paddleocr
+
+# TrOCR Dependencies (PyTorch-based)
+torch>=2.0.0
+transformers>=4.30.0
+pillow>=9.0.0
+
+# Note: Install with:
+# pip install torch transformers pillow
+
+
+
+
