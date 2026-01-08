@@ -38,23 +38,36 @@ class ClassBasedOCRRouter:
         log.info("Initializing Class-Based OCR Router...")
         
         # Initialize PaddleOCR (for Text_box only)
-        self.paddle_recognizer = PaddleOCRRecognizer(lang='en', use_gpu=self.use_gpu)
+        try:
+            self.paddle_recognizer = PaddleOCRRecognizer(lang='en', use_gpu=self.use_gpu)
+        except Exception as e:
+            log.error(f"❌ Failed to initialize PaddleOCR recognizer: {str(e)}")
+            log.error("   PaddleOCR is required for Text_box recognition")
+            log.error("   Install with: pip install paddlepaddle paddleocr")
+            log.error("   Or try: pip install --upgrade paddlepaddle paddleocr")
+            raise RuntimeError(f"PaddleOCR initialization failed: {str(e)}") from e
         
         # Initialize TrOCR (for Handwritten only)
-        self.trocr_recognizer = TrOCRRecognizer(
-            model_name="microsoft/trocr-base-handwritten",
-            use_gpu=self.use_gpu
-        )
+        try:
+            self.trocr_recognizer = TrOCRRecognizer(
+                model_name="microsoft/trocr-base-handwritten",
+                use_gpu=self.use_gpu
+            )
+        except Exception as e:
+            log.warning(f"⚠️  TrOCR initialization failed: {str(e)}")
+            log.warning("   Handwritten text recognition will be unavailable")
+            self.trocr_recognizer = None
         
         log.info("Class-Based OCR Router initialized")
         
         # Verify PaddleOCR initialization
         if self.paddle_recognizer is None:
-            log.error("❌ PaddleOCR recognizer initialization failed - check logs above")
+            log.error("❌ PaddleOCR recognizer is None - initialization failed")
             raise RuntimeError("PaddleOCR recognizer must be initialized")
         elif self.paddle_recognizer.ocr is None:
             log.error("❌ PaddleOCR engine is None - initialization failed")
             log.error("   Check PaddleOCR installation: pip install paddlepaddle paddleocr")
+            log.error("   Or try: pip install --upgrade paddlepaddle paddleocr")
             raise RuntimeError("PaddleOCR engine must be initialized")
         else:
             log.info(f"✅ PaddleOCR (Text_box): initialized and ready")

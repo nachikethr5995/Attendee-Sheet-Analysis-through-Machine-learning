@@ -1,6 +1,7 @@
-"""Row-wise structured output formatter - converts grouped rows to final API format.
+"""Row-wise structured output formatter - SOURCE OF TRUTH for document structure.
 
-Architecture Rule: YOLO defines structure; OCR only fills content within YOLO regions
+Architecture Rule: YOLO defines structure; OCR only fills content within YOLO regions.
+Row-wise is the source of truth. Column-wise is a pure pivot of row-wise.
 """
 
 # Import core first to ensure path fix is applied
@@ -12,7 +13,7 @@ from core.logging import log
 
 
 class RowwiseFormatter:
-    """Formats grouped rows into structured row-wise JSON output."""
+    """Formats grouped rows into structured row-wise JSON output (SOURCE OF TRUTH)."""
     
     def __init__(self, column_mapping: Optional[Dict[str, str]] = None):
         """Initialize row-wise formatter.
@@ -22,27 +23,34 @@ class RowwiseFormatter:
                            e.g., {'First Name': 'first_name', 'Last Name': 'last_name'}
         """
         self.column_mapping = column_mapping or {}
-        log.info("Row-wise formatter initialized")
+
     
     def format_rows(self,
                    rows: List[Dict[str, Any]],
                    ocr_results: List[Dict[str, Any]],
                    signatures: List[Dict[str, Any]],
                    checkboxes: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Format grouped rows into final structured output with OCR text aggregation.
+        """Format grouped rows into structured row-wise JSON output.
         
-        Architecture Rule: YOLO defines structure; OCR only fills content within YOLO regions
+        Architecture Rule: This is the SOURCE OF TRUTH. Column-wise is a pure pivot of this.
         
         Args:
-            rows: List of grouped rows from RowGrouper (already assigned to rows)
-            ocr_results: OCR results from ClassBasedOCRRouter (with 'class', 'text', 'source', 'bbox')
+            rows: List of row groups from RowGrouper
+            ocr_results: OCR results from ClassBasedOCRRouter
             signatures: Signature results from SignatureHandler
             checkboxes: Checkbox results from CheckboxHandler
             
         Returns:
-            Structured output with 'rows' array containing PrintedText, HandwrittenText lists
+            Structured row-wise output with X-centers stored for column assignment
         """
-        # Create lookup maps for quick access
+        if not rows:
+            return {
+                'rows': [],
+                'total_rows': 0,
+                'total_columns': 0
+            }
+        
+        # Create lookup maps for quick matching
         ocr_by_bbox = self._create_bbox_lookup(ocr_results)
         signature_by_bbox = self._create_bbox_lookup(signatures)
         checkbox_by_bbox = self._create_bbox_lookup(checkboxes)
@@ -53,10 +61,10 @@ class RowwiseFormatter:
             detections = row.get('detections', [])
             row_index = row.get('row_index', 0)
             
-            # Initialize row columns with OCR text lists
+            # Initialize row columns with OCR text lists (with X-centers)
             columns = {
-                'PrintedText': [],      # PaddleOCR results (Text_box class)
-                'HandwrittenText': [],  # TrOCR results (Handwritten class)
+                'PrintedText': [],      # List of {text, x_center} dicts
+                'HandwrittenText': [],  # List of {text, x_center} dicts
                 'Signature': False,     # Presence flag
                 'Checkbox': None        # Checked/unchecked or None
             }
@@ -71,6 +79,11 @@ class RowwiseFormatter:
                 if source and source != 'YOLOv8s':
                     log.warning(f"⚠️  Non-YOLO detection in row {row_index} (source: {source}) - skipping")
                     continue
+                
+                # Compute X-center for column assignment
+                x_center = None
+                if len(bbox) >= 4:
+                    x_center = (bbox[0] + bbox[2]) / 2.0
                 
                 # Find matching OCR result
                 ocr_result = self._find_matching_result(bbox, ocr_by_bbox)
@@ -90,12 +103,14 @@ class RowwiseFormatter:
                         confidence = ocr_result.get('confidence', 0.0)
                         
                         # Verify it came from PaddleOCR and meets confidence threshold (0.6)
-                        # Note: Router already applies 0.6 threshold, but double-check here
                         if ocr_source == 'paddleocr' and confidence >= 0.6 and text:
                             normalized_text = self._normalize_text(text)
-                            if normalized_text:
-                                columns['PrintedText'].append(normalized_text)
-                                log.debug(f"Row {row_index}: Added PrintedText '{normalized_text}' (conf: {confidence:.3f})")
+                            if normalized_text and x_center is not None:
+                                columns['PrintedText'].append({
+                                    'text': normalized_text,
+                                    'x_center': x_center
+                                })
+                                log.debug(f"Row {row_index}: Added PrintedText '{normalized_text}' at x={x_center:.4f}")
                 
                 elif class_name == 'handwritten':
                     # Handwritten → TrOCR text
@@ -105,12 +120,14 @@ class RowwiseFormatter:
                         confidence = ocr_result.get('confidence', 0.0)
                         
                         # Verify it came from TrOCR and meets confidence threshold (0.4 for handwriting)
-                        # Note: Router already applies 0.4 threshold, but double-check here
                         if ocr_source == 'trocr' and confidence >= 0.4 and text:
                             normalized_text = self._normalize_text(text)
-                            if normalized_text:
-                                columns['HandwrittenText'].append(normalized_text)
-                                log.debug(f"Row {row_index}: Added HandwrittenText '{normalized_text}' (conf: {confidence:.3f})")
+                            if normalized_text and x_center is not None:
+                                columns['HandwrittenText'].append({
+                                    'text': normalized_text,
+                                    'x_center': x_center
+                                })
+                                log.debug(f"Row {row_index}: Added HandwrittenText '{normalized_text}' at x={x_center:.4f}")
                 
                 elif class_name == 'signature':
                     # Signature → Presence flag only (NO OCR)
@@ -121,31 +138,68 @@ class RowwiseFormatter:
                 elif class_name == 'checkbox':
                     # Checkbox → Presence + checked/unchecked (NO OCR)
                     if checkbox and checkbox.get('present', False):
-                        columns['Checkbox'] = checkbox.get('checked', False)
+                        checked_value = checkbox.get('checked', False)
+                        columns['Checkbox'] = bool(checked_value) if checked_value is not None else None
                         log.debug(f"Row {row_index}: Checkbox present, checked={columns['Checkbox']}")
                 
                 # Other classes (Table, etc.) - no processing needed here
             
-            # Post-processing: Deduplication per row
-            columns['PrintedText'] = list(dict.fromkeys(columns['PrintedText']))  # Preserve order, remove duplicates
-            columns['HandwrittenText'] = list(dict.fromkeys(columns['HandwrittenText']))  # Preserve order, remove duplicates
+            # Post-processing: Deduplication per row (preserve X-centers)
+            columns['PrintedText'] = self._deduplicate_with_x_center(columns['PrintedText'])
+            columns['HandwrittenText'] = self._deduplicate_with_x_center(columns['HandwrittenText'])
+            
+            # Convert X-center dicts to simple lists for final output (backward compatibility)
+            # X-centers are stored internally but output as simple lists
+            output_columns = {
+                'PrintedText': [item['text'] if isinstance(item, dict) else item 
+                                for item in columns['PrintedText']],
+                'HandwrittenText': [item['text'] if isinstance(item, dict) else item 
+                                   for item in columns['HandwrittenText']],
+                'Signature': columns['Signature'],
+                'Checkbox': columns['Checkbox']
+            }
             
             formatted_rows.append({
                 'row_index': row_index,
-                'columns': columns
+                'columns': output_columns,
+                '_internal': {  # Internal data with X-centers for column assignment
+                    'PrintedText': columns['PrintedText'],
+                    'HandwrittenText': columns['HandwrittenText']
+                }
             })
         
-        log.info(f"Formatted {len(formatted_rows)} rows into structured output")
-        log.info(f"  Rows with PrintedText: {sum(1 for r in formatted_rows if r['columns']['PrintedText'])}")
-        log.info(f"  Rows with HandwrittenText: {sum(1 for r in formatted_rows if r['columns']['HandwrittenText'])}")
-        log.info(f"  Rows with Signature: {sum(1 for r in formatted_rows if r['columns']['Signature'])}")
-        log.info(f"  Rows with Checkbox: {sum(1 for r in formatted_rows if r['columns']['Checkbox'] is not None)}")
+        # Calculate total columns (max number of PrintedText items across all rows)
+        max_columns = 0
+        for row in formatted_rows:
+            printed_count = len(row.get('columns', {}).get('PrintedText', []))
+            handwritten_count = len(row.get('columns', {}).get('HandwrittenText', []))
+            max_columns = max(max_columns, printed_count, handwritten_count)
+        
+        log.info(f"Formatted {len(formatted_rows)} rows (max columns: {max_columns})")
         
         return {
             'rows': formatted_rows,
             'total_rows': len(formatted_rows),
-            'total_columns': sum(len(r.get('columns', {})) for r in formatted_rows)
+            'total_columns': max_columns
         }
+    
+    def _deduplicate_with_x_center(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Deduplicate items while preserving order and X-centers.
+        
+        Args:
+            items: List of {text, x_center} dicts
+            
+        Returns:
+            Deduplicated list preserving order
+        """
+        seen = set()
+        result = []
+        for item in items:
+            text = item.get('text', '')
+            if text and text not in seen:
+                seen.add(text)
+                result.append(item)
+        return result
     
     def _normalize_text(self, text: str) -> str:
         """Normalize text by collapsing whitespace.
@@ -215,60 +269,3 @@ class RowwiseFormatter:
                     return result
         
         return None
-    
-    def _infer_column_name(self,
-                           text: str,
-                           existing_columns: Dict[str, Any],
-                           default: Optional[str] = None) -> str:
-        """Infer column name from text content.
-        
-        Args:
-            text: Detected text
-            existing_columns: Already assigned columns in this row
-            default: Default column name if inference fails
-            
-        Returns:
-            Inferred column name
-        """
-        # Check if text matches a known column mapping
-        text_lower = text.lower().strip()
-        for key, mapped_name in self.column_mapping.items():
-            if text_lower == key.lower():
-                return mapped_name
-        
-        # Use text as column name (capitalize first letter)
-        if text:
-            return text.strip()
-        
-        # Fallback to default or generic name
-        if default:
-            return default
-        
-        # Generate generic column name
-        col_num = len(existing_columns) + 1
-        return f"Column_{col_num}"
-    
-    def _infer_checkbox_label(self,
-                              checkbox: Dict[str, Any],
-                              existing_columns: Dict[str, Any]) -> str:
-        """Infer checkbox label from context.
-        
-        Args:
-            checkbox: Checkbox result
-            existing_columns: Already assigned columns in this row
-            
-        Returns:
-            Checkbox label
-        """
-        # Try to find a nearby text column that might be the label
-        # For now, use a generic label
-        # TODO: Implement spatial relationship detection
-        
-        # Check if there's a common checkbox label pattern
-        for col_name in existing_columns.keys():
-            if any(keyword in col_name.lower() for keyword in ['opt', 'meal', 'diet', 'preference']):
-                return col_name
-        
-        # Default checkbox label
-        return "Checkbox"
-

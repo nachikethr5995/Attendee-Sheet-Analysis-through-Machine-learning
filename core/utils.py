@@ -354,6 +354,36 @@ def json_safe(obj: Any) -> Any:
     return obj
 
 
+def is_center_inside_bbox(inner_bbox: list, outer_bbox: list) -> bool:
+    """Check if center point of inner bounding box lies inside outer bounding box.
+    
+    This is the correct geometric primitive for document parsing:
+    - Matches row/column assignment logic (uses x_center/y_center)
+    - Stable for narrow columns
+    - Immune to partial boundary crossings
+    - Deterministic (binary check, no thresholds)
+    
+    Args:
+        inner_bbox: Inner bounding box [x1, y1, x2, y2] (normalized coordinates)
+        outer_bbox: Outer bounding box [x1, y1, x2, y2] (normalized coordinates)
+        
+    Returns:
+        bool: True if center point of inner bbox is inside outer bbox
+    """
+    if len(inner_bbox) < 4 or len(outer_bbox) < 4:
+        return False
+    
+    ix1, iy1, ix2, iy2 = inner_bbox[:4]
+    ox1, oy1, ox2, oy2 = outer_bbox[:4]
+    
+    # Calculate center point of inner bbox
+    cx = (ix1 + ix2) / 2.0
+    cy = (iy1 + iy2) / 2.0
+    
+    # Check if center point is inside outer bbox
+    return ox1 <= cx <= ox2 and oy1 <= cy <= oy2
+
+
 
 
 

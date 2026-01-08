@@ -117,10 +117,9 @@ class RowwiseRequest(BaseModel):
 
 
 class RowwiseResponse(BaseModel):
-    """Response model for row-wise structured output."""
-    rows: List[Dict[str, Any]]
-    total_rows: int
-    total_columns: int
+    """Response model for dual row-wise and column-wise structured output."""
+    rowwise: Dict[str, Any]
+    columnwise: Dict[str, Any]
     layout: Dict[str, int]
     failed: bool
     error: Optional[str] = None
@@ -793,7 +792,7 @@ def _should_trigger_preprocessing(layout_result: Dict[str, Any],
 
 @router.post("/analyze/rowwise", response_model=RowwiseResponse)
 async def analyze_rowwise(request: RowwiseRequest):
-    """Unified pipeline endpoint returning row-wise structured output.
+    """Unified pipeline endpoint returning dual row-wise and column-wise structured output.
     
     Architecture:
     1. YOLOv8s layout detection (on original image, no preprocessing)
@@ -802,14 +801,18 @@ async def analyze_rowwise(request: RowwiseRequest):
        - Handwritten → TrOCR ONLY
     3. Signature handling (presence + crop, NO OCR)
     4. Checkbox handling (presence + checked/unchecked state)
-    5. Table-aware row grouping (Y-center clustering, X-ordering)
-    6. Row-wise structured JSON output
+    5. Dual structural grouping:
+       - Table-aware row grouping (Y-center clustering, X-ordering)
+       - Column grouping (X-center clustering, Y-ordering)
+    6. Dual structured JSON output:
+       - Row-wise: rows indexed by row_index
+       - Column-wise: columns indexed by column_index with row-indexed data
     
     Args:
         request: RowwiseRequest with file_id, pre_0_id, or pre_01_id
         
     Returns:
-        RowwiseResponse: Row-wise structured output with columns per row
+        RowwiseResponse: Dual structured output with both rowwise and columnwise views
         
     Raises:
         HTTPException: If processing fails
@@ -837,7 +840,16 @@ async def analyze_rowwise(request: RowwiseRequest):
         # Sanitize result
         sanitized_result = json_safe(result)
         
-        log.info(f"Unified Pipeline complete: {result.get('total_rows', 0)} rows, {result.get('total_columns', 0)} total columns")
+        # Extract metrics for logging
+        rowwise_data = result.get('rowwise', {})
+        columnwise_data = result.get('columnwise', {})
+        total_rows = rowwise_data.get('total_rows', 0)
+        total_columns_rowwise = rowwise_data.get('total_columns', 0)
+        total_columns_columnwise = columnwise_data.get('total_columns', 0)
+        
+        log.info(f"Unified Pipeline complete: {total_rows} rows, "
+                f"{total_columns_rowwise} columns (rowwise), "
+                f"{total_columns_columnwise} columns (columnwise)")
         
         return RowwiseResponse(**sanitized_result)
         

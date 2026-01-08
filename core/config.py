@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     OCR_PADDLE_CONFIDENCE_THRESHOLD: float = 0.5  # Threshold for TrOCR fallback
     OCR_PADDLE_LANG: str = "en"  # PaddleOCR language
     OCR_TROCR_MODEL: str = "microsoft/trocr-base-handwritten"  # TrOCR model name
+    OCR_TABLE_FILTER_MODE: str = "center"  # Filter mode: "center" (center-point containment) or "none" (process all)
+    
+    # Row/Column Grouping Settings
+    ROW_HEIGHT_THRESHOLD: float = 0.02  # Normalized height threshold for row clustering (2% of image height)
+    COLUMN_WIDTH_THRESHOLD: float = 0.03  # Normalized width threshold for column clustering (3% of image width)
+    HEADER_ROW_INDEX: int = 2  # Row index to use as header (1-based, default: 2 = second row)
     
     # Signature Verification Settings
     SIGNATURE_VERIFICATION_THRESHOLD: float = 0.7  # GPDS verification threshold

@@ -1,4 +1,4 @@
-"""Unified pipeline - orchestrates YOLOv8s → Class-based OCR → Row grouping → Structured output."""
+"""Unified pipeline - orchestrates YOLOv8s → Class-based OCR → Dual Row/Column grouping → Structured output."""
 
 # Import core first to ensure path fix is applied
 import core  # This ensures user site-packages is in path
@@ -14,6 +14,8 @@ from postprocessing.signature_handler import SignatureHandler
 from postprocessing.checkbox_handler import CheckboxHandler
 from postprocessing.row_grouper import RowGrouper
 from postprocessing.rowwise_formatter import RowwiseFormatter
+from postprocessing.column_grouper import ColumnGrouper
+from postprocessing.columnwise_formatter import ColumnwiseFormatter
 
 
 class UnifiedPipeline:
@@ -24,8 +26,12 @@ class UnifiedPipeline:
     2. Class-based OCR routing (Text_box → PaddleOCR, Handwritten → TrOCR)
     3. Signature handling (presence + crop, no OCR)
     4. Checkbox handling (presence + checked/unchecked)
-    5. Table-aware row grouping
-    6. Row-wise structured output
+    5. Dual structural grouping:
+       - Table-aware row grouping
+       - Column grouping
+    6. Dual structured output:
+       - Row-wise structured output
+       - Column-wise structured output
     """
     
     def __init__(self, use_gpu: Optional[bool] = None):
@@ -43,10 +49,12 @@ class UnifiedPipeline:
         self.ocr_router = ClassBasedOCRRouter(use_gpu=self.use_gpu)
         self.signature_handler = SignatureHandler(save_crops=False)  # Can enable if needed
         self.checkbox_handler = CheckboxHandler()
-        self.row_grouper = RowGrouper()
+        self.row_grouper = RowGrouper(row_height_threshold=settings.ROW_HEIGHT_THRESHOLD)
         self.rowwise_formatter = RowwiseFormatter()
+        self.column_grouper = ColumnGrouper(column_width_threshold=settings.COLUMN_WIDTH_THRESHOLD)
+        self.columnwise_formatter = ColumnwiseFormatter()
         
-        log.info("Unified Pipeline initialized")
+        log.info("Unified Pipeline initialized (with dual row/column grouping)")
     
     def process(self,
                 file_id: Optional[str] = None,
@@ -121,14 +129,52 @@ class UnifiedPipeline:
         
         # CRITICAL: All detections MUST come from YOLOv8s - no other source allowed
         # Route Text_box to PaddleOCR (strict routing, no fallbacks)
+        # Filter: Only process text_boxes whose center point lies inside table bbox
+        # This matches row/column assignment logic (x_center/y_center) for consistency
         if text_blocks:
-            log.info(f"Routing {len(text_blocks)} Text_box detections (YOLO) to PaddleOCR...")
-            # Ensure all detections have YOLO source and class
-            for det in text_blocks:
-                det['source'] = 'YOLOv8s'  # Enforce YOLO source
-                det['class'] = 'text_block'  # Ensure class is set
-            text_ocr = self.ocr_router.process_detections(image, text_blocks)
-            ocr_results.extend(text_ocr)
+            # Filter text_boxes to table-only using center-point containment
+            filtered_text_blocks = text_blocks
+            if tables:
+                from core.utils import is_center_inside_bbox
+                table_bboxes = [table.get('bbox', []) for table in tables if table.get('bbox')]
+                
+                filtered_text_blocks = []
+                for det in text_blocks:
+                    det_bbox = det.get('bbox', [])
+                    if not det_bbox or len(det_bbox) < 4:
+                        continue
+                    
+                    # Check if text_box center point is inside any table
+                    is_inside = any(
+                        is_center_inside_bbox(det_bbox, table_bbox)
+                        for table_bbox in table_bboxes
+                    )
+                    
+                    if is_inside:
+                        filtered_text_blocks.append(det)
+                
+                log.info(
+                    f"PaddleOCR routing: {len(filtered_text_blocks)}/{len(text_blocks)} "
+                    f"text_boxes passed (center-in-table)"
+                )
+            else:
+                # No tables detected - skip PaddleOCR entirely (strict policy)
+                log.warning(
+                    f"No tables detected. "
+                    f"Skipping PaddleOCR for all {len(text_blocks)} text_boxes."
+                )
+                filtered_text_blocks = []
+            
+            if filtered_text_blocks:
+                log.info(f"Routing {len(filtered_text_blocks)} Text_box detections (YOLO) to PaddleOCR...")
+                # Ensure all detections have YOLO source and class
+                for det in filtered_text_blocks:
+                    det['source'] = 'YOLOv8s'  # Enforce YOLO source
+                    det['class'] = 'text_block'  # Ensure class is set
+                text_ocr = self.ocr_router.process_detections(image, filtered_text_blocks)
+                ocr_results.extend(text_ocr)
+            else:
+                log.info("No text_boxes inside table — skipping PaddleOCR")
         
         # Route Handwritten to TrOCR (strict routing, no fallbacks)
         if handwritten:
@@ -167,21 +213,28 @@ class UnifiedPipeline:
         all_detections.extend([{**det, 'class': 'signature'} for det in signatures])
         all_detections.extend([{**det, 'class': 'checkbox'} for det in checkboxes])
         
-        # Step 7: Table-aware row grouping
-        log.info("Step 5: Grouping detections into rows...")
+        # Step 7: Structural grouping
+        # Step 7a: Table-aware row grouping
+        log.info("Step 5a: Grouping detections into rows...")
         rows = self.row_grouper.group_into_rows(all_detections, table_bboxes=tables)
         rows = self.row_grouper.assign_row_indices(rows)
         
-        # Step 8: Format into row-wise structured output
-        log.info("Step 6: Formatting row-wise structured output...")
-        formatted_output = self.rowwise_formatter.format_rows(
+        # Step 8: Formatting (Row-wise is source of truth)
+        # Step 8a: Format into row-wise structured output (SOURCE OF TRUTH)
+        log.info("Step 6a: Formatting row-wise structured output (SOURCE OF TRUTH)...")
+        rowwise_output = self.rowwise_formatter.format_rows(
             rows, ocr_results, signature_results, checkbox_results
         )
+        
+        # Step 8b: Format into column-wise structured output (pure pivot of row-wise)
+        log.info("Step 6b: Building column-wise structured output (pure pivot of row-wise)...")
+        columnwise_output = self.columnwise_formatter.format_columns(rowwise_output)
         
         log.info("Unified Pipeline processing complete")
         
         return {
-            **formatted_output,
+            'rowwise': rowwise_output,
+            'columnwise': columnwise_output,
             'layout': {
                 'tables': len(tables),
                 'text_blocks': len(text_blocks),

@@ -5,21 +5,22 @@ import core  # This ensures user site-packages is in path
 
 from typing import List, Dict, Any, Optional, Tuple
 from core.logging import log
+from core.config import settings
 import numpy as np
 
 
 class RowGrouper:
     """Groups detections into rows based on Y-center clustering, orders by X within rows."""
     
-    def __init__(self, row_height_threshold: float = 0.02):
+    def __init__(self, row_height_threshold: Optional[float] = None):
         """Initialize row grouper.
         
         Args:
             row_height_threshold: Normalized height threshold for row clustering
-                                (default 0.02 = 2% of image height)
+                                (default from settings.ROW_HEIGHT_THRESHOLD = 2% of image height)
         """
-        self.row_height_threshold = row_height_threshold
-        log.info(f"Row grouper initialized (row_height_threshold: {row_height_threshold})")
+        self.row_height_threshold = row_height_threshold if row_height_threshold is not None else settings.ROW_HEIGHT_THRESHOLD
+        log.info(f"Row grouper initialized (row_height_threshold: {self.row_height_threshold})")
     
     def group_into_rows(self,
                        detections: List[Dict[str, Any]],
@@ -129,5 +130,9 @@ class RowGrouper:
         for i, row in enumerate(rows, start=1):
             row['row_index'] = i
         return rows
+
+
+
+
 
 
