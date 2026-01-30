@@ -2,6 +2,8 @@
 
 ## **README.md**
 
+> **Note:** For information on setting up optional model files (GPDS signature, checkbox models), see [MODEL_SETUP_GUIDE.md](MODEL_SETUP_GUIDE.md)
+
 # **📌 Overview**
 
 AIME Backend is a linear, GPU-accelerated FastAPI pipeline for high-accuracy document parsing in life-sciences workflows. It performs:
@@ -25,14 +27,18 @@ AIME uses a **two-stage preprocessing strategy** to maximize both performance an
 ### **Final Pipeline Flow**
 
 ```
-UPLOAD → SERVICE 0 (basic preprocessing)
-       → SERVICE 1 (layout detection)
-       → SERVICE 2 (table isolation)
-       → SERVICE 3 (OCR routing)
-       → SERVICE 4 (scoring & output)
+UPLOAD → SERVICE 0 (basic preprocessing - optional)
+       → SERVICE 1 (YOLOv8s layout detection)
+       → Unified Pipeline:
+          ├─ Class-based OCR routing (Text_box → PaddleOCR, Handwritten → PARSeq)
+          ├─ Signature handling (presence + crop, no OCR)
+          ├─ Checkbox handling (presence + checked/unchecked)
+          ├─ Table-aware row grouping
+          ├─ Column grouping
+          └─ Structured output (row-wise & column-wise)
              │
              └── failure / low confidence → SERVICE 0.1 (advanced preprocessing)
-                                               → rerun SERVICE 1–4
+                                               → rerun pipeline
 ```
 
 This ensures:
@@ -59,13 +65,11 @@ This ensures:
 * OpenCV
 * scikit-image
 * Pillow (HEIF/AVIF support)
-* Detectron2 (PubLayNet)
+* YOLOv8s (layout detection - Text_box, Handwritten, Signature, Checkbox, Table)
 * GPDS Signature Detector
-* YOLOv8 (for checkboxes)
-* PaddleOCR (DBNet text detection)
-* TrOCR
-* EfficientNet
-* PyTorch
+* PaddleOCR (printed text recognition only, detection disabled)
+* PARSeq (handwritten text recognition)
+* PyTorch & PyTorch Lightning
 * pdf2image
 
 ---
@@ -100,7 +104,7 @@ backend/
 │   └── line_cluster.py
 ├── ocr/
 │   ├── paddle_engine.py
-│   ├── trocr_engine.py
+│   ├── parseq_recognizer.py  # PARSeq for handwritten recognition
 │   └── router.py
 ├── postprocessing/
 │   ├── table_reconstruct.py
@@ -192,7 +196,7 @@ Advanced corrections include:
 * Strong denoising
 * Shadow removal
 * Full perspective correction
-* Orientation correction (EfficientNet classifier)
+* Orientation correction (if needed)
 * CLAHE++ tuning
 * Handwriting enhancement
 * Adaptive binarization
@@ -213,7 +217,7 @@ This becomes the canonical input for rerunning Services 1–4.
 
 Using a hybrid ensemble of specialized pretrained models:
 
-* **PubLayNet (Detectron2)** — Tables and text blocks
+* **YOLOv8s** — Layout detection (Text_box, Handwritten, Signature, Checkbox, Table)
 * **GPDS Signature Detector** — Handwritten signatures
 * **Custom Checkbox Detector (Tiny YOLOv8)** — Checkboxes
 * **PaddleOCR Text Detector (DBNet)** — Refined text regions
@@ -233,47 +237,36 @@ Using a hybrid ensemble of specialized pretrained models:
 
 ---
 
-# **🧠 SERVICE 2 — Table Isolation**
+# **🧠 Unified Pipeline — Complete Analysis**
 
-* Line detection
-* Gap clustering
-* Row/column segmentation
-* Table bounding box refinement
+The unified pipeline orchestrates the complete analysis flow:
 
-**Output:**
-
-```
-{canonical_id}_tables.json
-```
-
----
-
-# **🧠 SERVICE 3 — OCR Routing**
-
-* PaddleOCR for printed text
-* TrOCR for handwriting
-* SignatureNet for signatures
-* Checkbox classifier
+1. **YOLOv8s Layout Detection** - Detects all layout elements
+2. **Class-based OCR Routing**:
+   * Text_box → PaddleOCR (printed text)
+   * Handwritten → PARSeq (handwriting)
+   * Signature → Presence flag only (no OCR)
+   * Checkbox → Presence + checked/unchecked (no OCR)
+3. **Table-aware Row Grouping** - Groups detections into rows using table anchors
+4. **Column Grouping** - Assigns cells to columns based on header positions
+5. **Structured Output**:
+   * Row-wise structured JSON
+   * Column-wise structured JSON
+   * Final API output with field mapping
 
 **Output:**
 
 ```
-{canonical_id}_ocr.json
-```
-
----
-
-# **🧠 SERVICE 4 — Scoring & Output**
-
-* Confidence aggregation
-* Row/column reconstruction
-* Field mapping
-* Final JSON output for frontend
-
-**Stored as:**
-
-```
-analysis_{timestamp}.json
+POST /api/analyze returns:
+{
+  "rows": [
+    {
+      "last_name": "...",
+      "first_name": "...",
+      ...
+    }
+  ]
+}
 ```
 
 ---
@@ -303,15 +296,11 @@ No service can be built until the previous service is fully tested and explicitl
 2. **SERVICE 1 (Layout detection)**
    * Build only after SERVICE 0 approval.
 
-3. **SERVICE 2 (Table isolation)**
-
-4. **SERVICE 3 (OCR routing)**
-
-5. **SERVICE 4 (Scoring & output)**
+3. **Unified Pipeline (OCR routing, row/column grouping, structured output)**
 
 ### **SERVICE 0.1 (Advanced Preprocessing)**
 
-Will only be built after Services 1–4 are functional and **only when the developer explicitly requests it**.
+Will only be built after the unified pipeline is functional and **only when the developer explicitly requests it**.
 
 This preserves clarity, debuggability, and pipeline stability.
 
@@ -335,8 +324,8 @@ scikit-image
 ultralytics
 torch
 torchvision
-efficientnet-pytorch
-scikit-learn
+# efficientnet-pytorch  # Not used in current workflow
+# scikit-learn  # Not used in current workflow
 paddleocr
 paddlepaddle
 loguru
@@ -351,9 +340,7 @@ python-dotenv
 | ---- | ------------------------------------ |
 | 1–2  | SERVICE 0 (basic)                    |
 | 3    | SERVICE 1                            |
-| 4    | SERVICE 2                            |
-| 5    | SERVICE 3                            |
-| 6    | SERVICE 4                            |
+| 4    | Unified Pipeline (OCR + Grouping + Output) |
 | 7    | SERVICE 0.1 (advanced preprocessing) |
 
 ---
@@ -559,7 +546,7 @@ SERVICE 3: OCR pipeline.
       "bbox": [x1, y1, x2, y2],
       "text": "extracted text",
       "confidence": 0.95,
-      "source": "paddleocr" or "trocr"
+      "source": "paddleocr" or "parseq"
     }
   ],
   "dimensions": {"width": 2048, "height": 1536},
@@ -569,9 +556,10 @@ SERVICE 3: OCR pipeline.
 ```
 
 **OCR Routing:**
-- PaddleOCR for printed text (default)
-- TrOCR for handwriting (fallback for low confidence)
-- Class-based routing: Text_box → PaddleOCR, Handwritten → TrOCR
+- PaddleOCR for printed text (Text_box class only)
+- PARSeq for handwriting (Handwritten class only)
+- Class-based routing: Text_box → PaddleOCR, Handwritten → PARSeq
+- No fallbacks - strict class-based routing
 
 ### **POST /api/analyze/signatures/verify**
 Signature verification endpoint (post-detection verification).
@@ -663,7 +651,7 @@ Unified pipeline endpoint returning dual row-wise and column-wise structured out
 2. Class-based OCR routing with table filtering:
    - Filter text_boxes using center-point containment (center must be inside table bbox)
    - Text_box → PaddleOCR (only for filtered text_boxes inside tables)
-   - Handwritten → TrOCR
+   - Handwritten → PARSeq
 3. Signature handling (presence + crop, NO OCR)
 4. Checkbox handling (presence + checked/unchecked state)
 5. Table-aware row grouping (Y-center clustering)
@@ -761,7 +749,7 @@ The system follows a strict architectural principle:
 This ensures:
 - ✅ No OCR detection (PaddleOCR runs with `det=False`)
 - ✅ No handwriting heuristics (YOLO class determines routing)
-- ✅ Strict class-based routing (Text_box → PaddleOCR, Handwritten → TrOCR)
+- ✅ Strict class-based routing (Text_box → PaddleOCR, Handwritten → PARSeq)
 - ✅ No OCR outside YOLO regions
 - ✅ Deterministic, reproducible results
 
@@ -781,7 +769,7 @@ Both views are computed independently and consistently from the same YOLO detect
 **Components:**
 - `RowGrouper` - Groups detections into rows using Y-axis clustering
 - `RowwiseFormatter` - Formats rows into structured output
-- Class-based OCR routing (Text_box → PaddleOCR, Handwritten → TrOCR)
+- Class-based OCR routing (Text_box → PaddleOCR, Handwritten → PARSeq)
 
 **Output Schema:**
 ```json
@@ -904,7 +892,7 @@ YOLO → Row Grouper → Column Assigner (X-based) → OCR → Rowwise → Colum
 
 4. OCR Routing
    ├── Text_box → PaddleOCR
-   ├── Handwritten → TrOCR
+   ├── Handwritten → PARSeq
    ├── Signature → Presence flag (no OCR)
    └── Checkbox → Checked state (no OCR)
 
@@ -1074,14 +1062,14 @@ HEADER_ROW_INDEX: int = 2               # Row index for header (1-based)
 
 # OCR Thresholds
 OCR_PADDLE_CONFIDENCE_THRESHOLD: float = 0.5
-OCR_TROCR_CONFIDENCE_THRESHOLD: float = 0.4
+# PARSeq settings (see core/config.py for PARSEQ_* settings)
 OCR_TABLE_FILTER_MODE: str = "center"  # Filter mode: "center" (center-point containment) or "none" (process all)
 ```
 
 ## **Validation & Guarantees**
 
 ✅ **YOLO defines structure** - All detections come from YOLOv8s  
-✅ **OCR defines content** - PaddleOCR/TrOCR only fill content within YOLO regions  
+✅ **OCR defines content** - PaddleOCR/PARSeq only fill content within YOLO regions  
 ✅ **No OCR outside YOLO regions** - Strict enforcement  
 ✅ **Table-only OCR filtering** - PaddleOCR only processes text_boxes whose center point lies inside table bbox  
 ✅ **Center-point containment** - Uses same geometric primitive as row/column assignment for consistency  

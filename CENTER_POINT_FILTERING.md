@@ -199,3 +199,12 @@ pytest Back_end/tests/test_table_only_ocr.py -v
 
 **Status:** Ready for production. Column 1 and header data should now be fully restored.
 
+
+
+
+
+
+
+
+
+

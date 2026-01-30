@@ -1,0 +1,4 @@
+"""Handwritten text recognition module."""
+
+
+

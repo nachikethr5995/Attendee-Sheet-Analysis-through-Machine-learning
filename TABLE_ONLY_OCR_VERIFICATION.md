@@ -139,7 +139,7 @@ WARNING | OCR_LIMIT_TO_TABLES enabled but no tables detected.
 - ✅ YOLO-first architecture (YOLO defines structure)
 - ✅ Row/column grouping logic (unchanged)
 - ✅ Existing API contracts
-- ✅ TrOCR handwritten flow (unaffected)
+- ✅ PARSeq handwritten flow (unaffected)
 - ✅ Signature/checkbox logic (unaffected)
 
 ---
@@ -180,7 +180,7 @@ Filtered Text_box
       └─ ONLY receives cropped YOLO regions ✅
 
 Handwritten
- └─ TrOCR (unaffected) ✅
+ └─ PARSeq (unaffected) ✅
 
 Signature / Checkbox
  └─ Presence logic (unaffected) ✅
@@ -233,4 +233,13 @@ python Back_end/tools/visualize_table_ocr_filtering.py \
 ✅ **Configurable and testable**
 
 **Status:** Ready for production use.
+
+
+
+
+
+
+
+
+
 

@@ -1,40 +1,73 @@
+# AIME Backend - Core Requirements
+# Install with: pip install -r requirements.txt
+
+# ============================================
+# API & Web Framework
+# ============================================
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
+
+# ============================================
+# Image Processing
+# ============================================
 opencv-python>=4.8.1.78
 opencv-contrib-python>=4.8.1.78
 Pillow>=10.3.0
-pillow-heif>=0.13.0
-pillow-avif-plugin>=1.4.3
-pdf2image>=1.16.3
+pillow-heif>=0.13.0  # HEIC/HEIF support
+pillow-avif-plugin>=1.4.3  # AVIF support
+pdf2image>=1.16.3  # PDF to image conversion
 numpy>=1.26.0
-scikit-image>=0.22.0
-ultralytics>=8.0.196
-torch>=2.1.0
-torchvision>=0.16.0
-efficientnet-pytorch>=0.7.1
-scikit-learn>=1.3.2
+scikit-image>=0.22.0  # Image processing utilities
+
+# ============================================
+# Layout Detection (YOLOv8s)
+# ============================================
+ultralytics>=8.0.196  # YOLOv8s for layout detection
+
+# ============================================
+# OCR Engines
+# ============================================
+# PaddleOCR (Printed Text Recognition)
 paddleocr>=2.7.0.3
 paddlepaddle>=2.5.2
-# detectron2>=0.6  # Optional - Windows compatibility issues, install via WSL or alternative method
-fvcore>=0.1.5
-iopath>=0.1.7
-# OCR Pipeline Dependencies (SERVICE 3)
-transformers>=4.30.0  # Required for TrOCR recognition engine
-loguru>=0.7.2
-python-dotenv>=1.0.0
+
+# ============================================
+# PARSeq (Handwritten Text Recognition)
+# ============================================
+# PyTorch (required for PARSeq)
+torch>=2.1.0
+torchvision>=0.16.0
+
+# PARSeq dependencies
+pytorch-lightning>=2.0.0  # Note: May need 2.2.0.post0 for checkpoint compatibility
+lmdb>=1.4.1  # Database for PARSeq datasets
+nltk>=3.8.1  # Edit distance calculation
+timm>=0.6.5  # Vision transformer models
+einops>=0.6.1  # Tensor operations
+pyyaml>=6.0.1  # Configuration files
+
+# ============================================
+# Utilities
+# ============================================
+loguru>=0.7.2  # Logging
+python-dotenv>=1.0.0  # Environment variables
+
+# ============================================
+# Testing (Optional)
+# ============================================
 pytest>=7.4.3
 pytest-asyncio>=0.21.1
 httpx>=0.25.2
 
-
-
-
-
-
-
-
-
-
+# ============================================
+# Legacy/Optional (Not Required for Current Workflow)
+# ============================================
+# transformers>=4.30.0  # TrOCR (LEGACY - replaced by PARSeq, kept for backward compatibility)
+# efficientnet-pytorch>=0.7.1  # Advanced preprocessing (optional, not actively used)
+# scikit-learn>=1.3.2  # Not currently used in workflow
+# detectron2>=0.6  # Optional - Windows compatibility issues
+# fvcore>=0.1.5  # Only used in PARSeq bench.py (not in workflow)
+# iopath>=0.1.7  # Only used in PARSeq bench.py (not in workflow)

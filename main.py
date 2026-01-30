@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings, ensure_directories
 from core.logging import log
-from api import health, upload, analyze
+from api import health, upload, analyze, debug
 
 # Ensure directories exist
 ensure_directories()
@@ -40,16 +40,19 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],  # Allow all origins (configure appropriately for production)
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 # Register routers
 app.include_router(health.router)
 app.include_router(upload.router)
 app.include_router(analyze.router)
+app.include_router(debug.router)  # Debug endpoints (observability only)
 
 
 if __name__ == "__main__":

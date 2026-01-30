@@ -196,3 +196,12 @@ The `/api/analyze/rowwise` endpoint now returns:
 - Class-specific confidence thresholds
 
 
+
+
+
+
+
+
+
+
+

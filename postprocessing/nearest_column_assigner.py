@@ -69,3 +69,12 @@ class NearestColumnAssigner:
         return column_texts
 
 
+
+
+
+
+
+
+
+
+

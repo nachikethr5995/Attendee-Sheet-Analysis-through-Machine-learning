@@ -113,14 +113,14 @@ class RowwiseFormatter:
                                 log.debug(f"Row {row_index}: Added PrintedText '{normalized_text}' at x={x_center:.4f}")
                 
                 elif class_name == 'handwritten':
-                    # Handwritten → TrOCR text
+                    # Handwritten → PARSeq text
                     if ocr_result:
                         text = ocr_result.get('text', '').strip()
                         ocr_source = ocr_result.get('source', '')
                         confidence = ocr_result.get('confidence', 0.0)
                         
-                        # Verify it came from TrOCR and meets confidence threshold (0.4 for handwriting)
-                        if ocr_source == 'trocr' and confidence >= 0.4 and text:
+                        # Verify it came from PARSeq (replaces TrOCR) and meets confidence threshold (0.4 for handwriting)
+                        if ocr_source == 'parseq' and confidence >= 0.4 and text:
                             normalized_text = self._normalize_text(text)
                             if normalized_text and x_center is not None:
                                 columns['HandwrittenText'].append({

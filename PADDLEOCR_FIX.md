@@ -175,7 +175,7 @@ INFO | Rows with HandwrittenText: 2
 
 1. ✅ **PaddleOCR must NEVER run on full images** - Only receives YOLO Text_box crops
 2. ✅ **PaddleOCR must ONLY process YOLO Text_box regions** - Strict class-based routing
-3. ✅ **TrOCR must ONLY process YOLO Handwritten regions** - Strict class-based routing
+3. ✅ **PARSeq must ONLY process YOLO Handwritten regions** - Strict class-based routing
 4. ✅ **No OCR fallback logic** - Each class goes to its designated engine only
 5. ✅ **Hard assertions** - Service fails fast if PaddleOCR isn't initialized
 
@@ -214,6 +214,15 @@ python Back_end/install_ppocrv4.py
 > The only failure was silent degradation when PaddleOCR initialization failed.
 > 
 > **Fix:** Fail-fast with hard assertions instead of silent skipping.
+
+
+
+
+
+
+
+
+
 
 
 

@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from pydantic_settings import BaseSettings
 
 
@@ -45,10 +45,85 @@ class Settings(BaseSettings):
     OCR_TROCR_MODEL: str = "microsoft/trocr-base-handwritten"  # TrOCR model name
     OCR_TABLE_FILTER_MODE: str = "center"  # Filter mode: "center" (center-point containment) or "none" (process all)
     
+    # OCR Input Quality Settings (3.1 & 3.2)
+    # These improve OCR reliability without changing detection or routing
+    OCR_ENABLE_BBOX_EXPANSION: bool = True  # Enable YOLO-safe bbox expansion
+    OCR_ENABLE_RESOLUTION_NORMALIZATION: bool = True  # Enable minimum resolution normalization
+    
+    # Text_box (PaddleOCR) settings
+    OCR_TEXT_BOX_BBOX_SCALE: float = 1.15  # Expansion factor for Text_box (15% expansion)
+    OCR_TEXT_BOX_MIN_SHORT_SIDE: int = 48  # Minimum short side in pixels for PaddleOCR
+    
+    # Handwritten (PARSeq) settings
+    OCR_HANDWRITTEN_BBOX_SCALE: float = 1.25  # Expansion factor for Handwritten (25% - needs more breathing room)
+    OCR_HANDWRITTEN_MIN_SHORT_SIDE: int = 96  # Minimum short side in pixels for PARSeq (higher res needed)
+    OCR_HANDWRITTEN_PAD_RATIO: float = 0.18  # Padding ratio for handwritten crops (Phase-1: increased from 0.15)
+    PARSEQ_CHECKPOINT_PATH: str = "./ocr/handwritten/parseq/weights/parseq-bb5792a6.pt"  # PARSeq checkpoint: local file path
+    
+    # Phase-1: Handwritten Box Merging (DISABLED - NO MERGING)
+    # Each YOLO handwritten box = exactly one OCR call (architectural rule)
+    HANDWRITTEN_MERGE_ENABLED: bool = False  # Merging disabled - each box processed separately
+    HANDWRITTEN_MERGE_X_GAP_THRESHOLD: float = 0.03  # Not used (merging disabled)
+    
+    # Phase-1: Column-Aware PARSeq Decoding (Fix B)
+    # Static map: column header → decode policy (max_length only, no vocab/language rules)
+    # Deterministic: Uses layout knowledge, no text guessing
+    PARSEQ_COLUMN_DECODE_POLICY: Dict[str, Dict[str, int]] = {
+        "Last Name": {"max_length": 15},
+        "First Name": {"max_length": 15},
+        "Attendee Type": {"max_length": 30},
+        "Credential or Title": {"max_length": 20},
+        "State of License": {"max_length": 10},
+        "NPI or State License#": {"max_length": 20},
+        "Name": {"max_length": 20},  # Generic name column
+        "Guest": {"max_length": 30},  # Guest-related columns
+    }
+    PARSEQ_DEFAULT_MAX_LENGTH: int = 25  # Default max_length if column not in policy
+    
+    # Phase-1.5: Column-Aware Allowed Charset (STRICT)
+    # Symbols are never valid semantic output in handwritten table cells
+    # This enables deterministic symbol elimination
+    PARSEQ_COLUMN_CHARSET: Dict[str, str] = {
+        "Last Name": r"A-Za-z",
+        "First Name": r"A-Za-z",
+        "Attendee Type": r"A-Za-z ",
+        "Credential or Title": r"A-Za-z ",
+        "State of License": r"A-Za-z",
+        "NPI or State License#": r"A-Za-z0-9",
+    }
+    PARSEQ_COLUMN_CHARSET: Dict[str, str] = {
+        "Last Name": r"A-Za-z",  # Letters only
+        "First Name": r"A-Za-z",  # Letters only
+        "Attendee Type": r"A-Za-z ",  # Letters and spaces
+        "Credential or Title": r"A-Za-z ",  # Letters and spaces
+        "State of License": r"A-Za-z",  # Letters only
+        "NPI or State License#": r"A-Za-z0-9",  # Alphanumeric
+        "Name": r"A-Za-z ",  # Generic name column
+        "Guest": r"A-Za-z ",  # Guest-related columns
+    }
+    PARSEQ_DEFAULT_ALLOWED_CHARS: str = r"A-Za-z0-9 "  # Default: alphanumeric and spaces
+    
+    # Text_box vs Handwritten Conflict Resolution
+    # When Text_box and Handwritten overlap, higher confidence wins
+    TEXT_HAND_CONFLICT_RESOLUTION: bool = True  # Enable conflict resolution
+    TEXT_HAND_IOU_THRESHOLD: float = 0.30  # Minimum IoU to consider as conflict
+    
+    # Signature vs Handwritten Tie-Breaker (Column Consensus)
+    # When Signature and Handwritten overlap with EQUAL confidence, use column context
+    SIG_HAND_TIEBREAK_ENABLED: bool = True  # Enable tie-breaker
+    SIG_HAND_IOU_THRESHOLD: float = 0.30  # Minimum IoU to consider as conflict
+    SIG_HAND_CONF_EPSILON: float = 0.01  # Confidence difference to be considered "equal"
+    SIG_HAND_COLUMN_CONF_THRESHOLD: float = 0.60  # Minimum confidence for column stats
+    
     # Row/Column Grouping Settings
     ROW_HEIGHT_THRESHOLD: float = 0.02  # Normalized height threshold for row clustering (2% of image height)
     COLUMN_WIDTH_THRESHOLD: float = 0.03  # Normalized width threshold for column clustering (3% of image width)
-    HEADER_ROW_INDEX: int = 2  # Row index to use as header (1-based, default: 2 = second row)
+    HEADER_ROW_INDEX: int = 1  # Row index to use as header (1-based, HARD-LOCK: must be row_index == 1)
+    
+    # Table-Anchored Row Construction
+    ROW_Y_THRESHOLD: int = 15  # Pixel threshold for row clustering (absolute pixels, not normalized)
+    ROW_ATTACH_MAX_DISTANCE: int = 30  # Maximum pixel distance for out-of-table row attachment
+    TABLE_BBOX_MARGIN: int = 5  # Pixel margin for table bbox containment check
     
     # Signature Verification Settings
     SIGNATURE_VERIFICATION_THRESHOLD: float = 0.7  # GPDS verification threshold

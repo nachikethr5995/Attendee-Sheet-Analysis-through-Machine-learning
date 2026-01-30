@@ -23,7 +23,7 @@ from layout.layout_service import LayoutService
 from ocr.pipeline import OCRPipeline
 from postprocessing.signature_verification_service import SignatureVerificationService
 from postprocessing.unified_pipeline import UnifiedPipeline
-from postprocessing.unified_pipeline import UnifiedPipeline
+from postprocessing.api_output_formatter import build_api_response
 
 router = APIRouter(prefix="/api", tags=["analyze"])
 
@@ -865,21 +865,38 @@ async def analyze_rowwise(request: RowwiseRequest):
 
 @router.post("/analyze")
 async def analyze_complete(request: AnalyzeRequest):
-    """Complete analysis endpoint running all services in sequence.
+    """Complete analysis endpoint returning structured row data.
     
-    NEW FLOW (Preprocessing is OPTIONAL):
-    1. Run SERVICE 1 (YOLOv8s) on original file_id (NO preprocessing)
-    2. Evaluate YOLOv8s results
-    3. Conditionally trigger SERVICE 0 (basic) or SERVICE 0.1 (advanced) if needed
-    4. If preprocessing triggered: rerun SERVICE 1 on processed image
-    5. Run SERVICE 3 (OCR pipeline)
-    6. Run SERVICE 4 (signature verification)
+    Architecture:
+    1. Run Unified Pipeline (YOLOv8s → OCR → Row/Column grouping)
+    2. Format output using API output formatter
+    3. Return structured rows with field names
+    
+    Output Format:
+    {
+      "rows": [
+        {
+          "last_name": "Magargee",
+          "first_name": "David",
+          "attendee_type": "Business Guest",
+          "credential": "DO",
+          "state_of_license": "MA",
+          "license_number": "74829",
+          "signature": true,
+          "checkbox": true
+        }
+      ]
+    }
+    
+    Rule: NO NULL IF DATA EXISTS
+    - PrintedText[0] always wins over HandwrittenText[0]
+    - Null only if both are empty
     
     Args:
         request: AnalyzeRequest with file_id
         
     Returns:
-        dict: Complete analysis results with preprocessing status and all service outputs
+        dict: API response with 'rows' list
         
     Raises:
         HTTPException: If processing fails
@@ -888,215 +905,33 @@ async def analyze_complete(request: AnalyzeRequest):
         file_id = request.file_id
         
         log.info(f"Starting complete analysis for file_id: {file_id}")
-        log.info(f"Preprocessing enabled: {settings.PREPROCESSING_ENABLED}, mode: {settings.PREPROCESSING_MODE}")
         
-        # Find file extension
-        file_extension = None
-        for ext in ['jpg', 'jpeg', 'png', 'heic', 'heif', 'avif', 'pdf']:
-            potential_path = get_raw_file_path(file_id, ext)
-            if potential_path.exists():
-                file_extension = ext
-                break
+        # Run Unified Pipeline (YOLOv8s → OCR → Row/Column grouping)
+        log.info("Running Unified Pipeline...")
+        pipeline = UnifiedPipeline(use_gpu=settings.USE_GPU)
         
-        if not file_extension:
+        result = pipeline.process(file_id=file_id)
+        
+        if result.get('failed', False):
+            error_msg = result.get('error', 'Unknown error')
+            log.error(f"Unified Pipeline failed: {error_msg}")
             raise HTTPException(
-                status_code=404,
-                detail=f"File not found: {file_id}"
+                status_code=500,
+                detail=f"Analysis failed: {error_msg}"
             )
         
-        # Track preprocessing status
-        preprocessing_applied = False
-        pre_0_id = None
-        pre_01_id = None
-        canonical_id = file_id  # Default to original file
-        services_used = []
-        fallbacks_used = []
+        # Extract rowwise and columnwise data
+        rowwise = result.get('rowwise', {})
+        columnwise = result.get('columnwise', {})
         
-        # STEP 1: Run YOLOv8s on ORIGINAL image (NO preprocessing)
-        log.info("Step 1: Running SERVICE 1 (YOLOv8s layout detection) on ORIGINAL image (no preprocessing)...")
-        layout_service = LayoutService()
-        layout_result = layout_service.detect_layout(file_id=file_id)
-        services_used.append("yolo")
-        
-        # Evaluate YOLOv8s results
-        should_preprocess, preprocess_reason = _should_trigger_preprocessing(layout_result)
-        
-        if should_preprocess:
-            log.warning(f"⚠️  Preprocessing trigger condition met: {preprocess_reason}")
-            log.info("Step 2: Triggering preprocessing fallback...")
-            
-            # Determine preprocessing mode
-            preprocess_mode = settings.PREPROCESSING_MODE
-            if preprocess_mode == "none":
-                # Auto-select: try basic first, then advanced if needed
-                preprocess_mode = "basic"
-            
-            # STEP 2a: Run basic preprocessing
-            if preprocess_mode in ["basic", "advanced"]:
-                log.info("Step 2a: Running SERVICE 0 (basic preprocessing)...")
-                basic_preprocessor = BasicPreprocessor()
-                basic_result = basic_preprocessor.process(file_id, file_extension)
-                pre_0_id = basic_result['pre_0_id']
-                preprocessing_applied = True
-                services_used.append("preprocessing_basic")
-                log.info(f"SERVICE 0 complete. pre_0_id: {pre_0_id}")
-                
-                # STEP 2b: Rerun YOLOv8s on preprocessed image
-                log.info("Step 2b: Rerunning SERVICE 1 (YOLOv8s) on preprocessed image...")
-                layout_result = layout_service.detect_layout(pre_0_id=pre_0_id)
-                canonical_id = pre_0_id
-                
-                # Check if we still need advanced preprocessing
-                if preprocess_mode == "advanced" or (
-                    settings.PREPROCESSING_TRIGGER_ON_YOLO_FAILURE and 
-                    layout_result.get('failed', False)
-                ):
-                    log.warning("Basic preprocessing insufficient, triggering advanced preprocessing...")
-                    fallbacks_used.append("advanced_preprocessing")
-                    
-                    # STEP 2c: Run advanced preprocessing
-                    log.info("Step 2c: Running SERVICE 0.1 (advanced preprocessing)...")
-                    advanced_preprocessor = AdvancedPreprocessor()
-                    advanced_result = advanced_preprocessor.process(pre_0_id=pre_0_id)
-                    pre_01_id = advanced_result['pre_01_id']
-                    services_used.append("preprocessing_advanced")
-                    log.info(f"SERVICE 0.1 complete. pre_01_id: {pre_01_id}")
-                    
-                    # STEP 2d: Rerun YOLOv8s on advanced preprocessed image
-                    log.info("Step 2d: Rerunning SERVICE 1 (YOLOv8s) on advanced preprocessed image...")
-                    layout_result = layout_service.detect_layout(pre_01_id=pre_01_id)
-                    canonical_id = pre_01_id
-        else:
-            log.info("✅ YOLOv8s results acceptable - skipping preprocessing")
-        
-        # Log YOLOv8s results
-        services_failed = layout_result.get('failed', False)
-        failure_reason = layout_result.get('failure_reason')
-        
-        if services_failed:
-            log.warning(f"SERVICE 1 failed: {failure_reason}")
-        else:
-            log.info(f"SERVICE 1 complete. Detected {len(layout_result.get('tables', []))} tables, "
-                    f"{len(layout_result.get('text_blocks', []))} text blocks, "
-                    f"{len(layout_result.get('signatures', []))} signatures, "
-                    f"{len(layout_result.get('checkboxes', []))} checkboxes, "
-                    f"{len(layout_result.get('handwritten', []))} handwritten")
-        
-        services_failed = layout_result.get('failed', False)
-        failure_reason = layout_result.get('failure_reason')
-        
-        if services_failed:
-            log.warning(f"SERVICE 1 failed: {failure_reason}")
-        else:
-            log.info(f"SERVICE 1 complete. Detected {len(layout_result.get('tables', []))} tables, "
-                    f"{len(layout_result.get('text_blocks', []))} text blocks, "
-                    f"{len(layout_result.get('signatures', []))} signatures, "
-                    f"{len(layout_result.get('checkboxes', []))} checkboxes")
-        
-        # STEP 3: Run SERVICE 3 (OCR Pipeline) - PaddleOCR detection and extraction
-        log.info("Step 3: Running SERVICE 3 (OCR pipeline - PaddleOCR detection and extraction)...")
-        ocr_result = None
-        ocr_failed = False
-        ocr_error = None
-        
-        try:
-            ocr_pipeline = OCRPipeline(
-                paddle_confidence_threshold=settings.OCR_PADDLE_CONFIDENCE_THRESHOLD,
-                use_gpu=settings.USE_GPU
-            )
-            # Use canonical_id (which may be file_id, pre_0_id, or pre_01_id)
-            ocr_result = ocr_pipeline.process_image(
-                file_id=file_id if canonical_id == file_id else None,
-                pre_0_id=pre_0_id if canonical_id == pre_0_id else None,
-                pre_01_id=pre_01_id if canonical_id == pre_01_id else None
-            )
-            services_used.append("paddleocr")
-            
-            if ocr_result.get('failed', False):
-                ocr_failed = True
-                ocr_error = ocr_result.get('error', 'Unknown OCR error')
-                log.warning(f"SERVICE 3 (OCR) failed: {ocr_error}")
-            else:
-                log.info(f"SERVICE 3 complete. Processed {len(ocr_result.get('text_regions', []))} text regions")
-                
-                # Check if OCR results should trigger preprocessing (post-OCR evaluation)
-                if not preprocessing_applied:
-                    should_preprocess_ocr, preprocess_reason_ocr = _should_trigger_preprocessing(
-                        layout_result, ocr_result
-                    )
-                    if should_preprocess_ocr and preprocess_reason_ocr.startswith("OCR"):
-                        log.warning(f"⚠️  Post-OCR preprocessing trigger: {preprocess_reason_ocr}")
-                        # Note: We don't rerun everything here, just log it for future optimization
-        except Exception as e:
-            ocr_failed = True
-            ocr_error = str(e)
-            log.error(f"SERVICE 3 (OCR) error: {str(e)}", exc_info=True)
-        
-        # STEP 4: Run SERVICE 4 (Signature Verification) - GPDS verification
-        log.info("Step 4: Running SERVICE 4 (signature verification - GPDS)...")
-        signature_verification_result = None
-        signature_verification_failed = False
-        signature_verification_error = None
-        
-        try:
-            verification_service = SignatureVerificationService(
-                verification_threshold=settings.SIGNATURE_VERIFICATION_THRESHOLD
-            )
-            signature_verification_result = verification_service.verify_from_layout(
-                canonical_id=canonical_id,
-                file_id=file_id,
-                pre_0_id=pre_0_id,
-                pre_01_id=pre_01_id
-            )
-            services_used.append("signature_verification")
-            
-            valid_count = sum(1 for sig in signature_verification_result if sig.get('is_valid_signature', False))
-            log.info(f"SERVICE 4 complete. Verified {valid_count}/{len(signature_verification_result)} signatures")
-        except Exception as e:
-            signature_verification_failed = True
-            signature_verification_error = str(e)
-            log.warning(f"SERVICE 4 (signature verification) error: {str(e)}", exc_info=True)
-            # Signature verification failure is not critical - continue
-        
-        # Prepare final result with preprocessing status
-        result = {
-            "file_id": file_id,
-            "processed_id": canonical_id if preprocessing_applied else None,  # processed_id only if preprocessing was applied
-            "preprocessing_applied": preprocessing_applied,
-            "pre_0_id": pre_0_id,
-            "pre_01_id": pre_01_id,
-            "canonical_id": canonical_id,
-            "status": "complete" if not services_failed else "complete_with_fallback",
-            "message": "Analysis complete" if not services_failed else "Analysis complete with preprocessing fallback",
-            "services_used": services_used,
-            "fallbacks_used": fallbacks_used,
-            "layout": {
-                "tables": layout_result.get('tables', []),
-                "text_blocks": layout_result.get('text_blocks', []),
-                "signatures": layout_result.get('signatures', []),
-                "checkboxes": layout_result.get('checkboxes', []),
-                "handwritten": layout_result.get('handwritten', [])
-            },
-            "layout_failed": services_failed,
-            "layout_failure_reason": failure_reason if services_failed else None,
-            "ocr": {
-                "text_regions": json_safe(ocr_result.get('text_regions', [])) if ocr_result else [],
-                "dimensions": json_safe(ocr_result.get('dimensions', {})) if ocr_result else {},
-                "failed": ocr_failed,
-                "error": ocr_error if ocr_failed else None,
-                "metadata": json_safe(ocr_result.get('metadata', {})) if ocr_result else {}
-            },
-            "signature_verification": {
-                "signatures": signature_verification_result if signature_verification_result else [],
-                "total_signatures": len(signature_verification_result) if signature_verification_result else 0,
-                "valid_signatures": sum(1 for sig in (signature_verification_result or []) if sig.get('is_valid_signature', False)),
-                "failed": signature_verification_failed,
-                "error": signature_verification_error if signature_verification_failed else None
-            }
-        }
+        # Format into final API response
+        log.info("Formatting API output...")
+        api_response = build_api_response(rowwise, columnwise)
         
         log.info(f"Complete analysis finished for file_id: {file_id}")
-        return result
+        log.info(f"Returning {len(api_response.get('rows', []))} rows")
+        
+        return api_response
         
     except Exception as e:
         log.error(f"Error in complete analysis: {str(e)}", exc_info=True)

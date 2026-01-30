@@ -10,7 +10,7 @@
 |-----------|-------------------------|----------------|
 | **YOLOv8s** | ✅ **YES (ONLY ONE)** | Layout detection: Text_box, Handwritten, Signature, Checkbox, Table |
 | **PaddleOCR** | ❌ **NO** | Recognition ONLY (receives cropped regions from YOLO) |
-| **TrOCR** | ❌ **NO** | Recognition ONLY (receives cropped regions from YOLO) |
+| **PARSeq** | ❌ **NO** | Recognition ONLY (receives cropped regions from YOLO) |
 
 ### Strict Routing Rules
 
@@ -19,7 +19,7 @@
    - No handwriting heuristics
    - YOLO decides it's printed text
 
-2. **Handwritten class** → TrOCR ONLY
+2. **Handwritten class** → PARSeq ONLY
    - No fallbacks
    - No confidence-based switching
    - YOLO decides it's handwriting
@@ -73,7 +73,7 @@ PaddleOCR(
       "class": "Handwritten",
       "text": "McNuff",
       "confidence": 0.87,
-      "source": "trocr"
+      "source": "parseq"
     }
   ]
 }
@@ -97,7 +97,7 @@ assert source_bbox_origin == "YOLO", \
 
 1. ❌ PaddleOCR running `det=True` (detection enabled)
 2. ❌ OCR pipeline using PaddleOCR detection instead of YOLO
-3. ❌ Handwriting heuristics triggering TrOCR fallback
+3. ❌ Handwriting heuristics triggering PARSeq fallback
 4. ❌ Mixed OCR sources for one detection
 5. ❌ OCR seeing full image instead of cropped regions
 
@@ -110,7 +110,7 @@ YOLOv8s Layout Detection (ONLY detector)
   ↓
 Class-based routing
   ├── class=Text_box      → PaddleOCR (REC ONLY, det=False)
-  ├── class=Handwritten   → TrOCR
+  ├── class=Handwritten   → PARSeq
   ├── class=Signature     → Crop + presence (NO OCR)
   ├── class=Checkbox      → Presence + checked (NO OCR)
   ↓
@@ -118,6 +118,15 @@ Table-aware row grouping
   ↓
 Row-wise structured output
 ```
+
+
+
+
+
+
+
+
+
 
 
 
