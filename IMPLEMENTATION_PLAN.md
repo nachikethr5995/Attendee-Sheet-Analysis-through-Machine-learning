@@ -1,8 +1,18 @@
 # **AIME Backend — Implementation Plan**
 
+> **⚠️ LEGACY DOCUMENT**: This is a historical planning document from the initial project design phase. The actual implementation has evolved significantly:
+> - **Current workflow**: Uses Unified Pipeline (not separate SERVICE 2/4)
+> - **OCR**: PARSeq replaces TrOCR for handwritten recognition
+> - **Detection**: YOLOv8s is the only detector (not Detectron2/PubLayNet)
+> - **API**: POST /api/analyze returns structured rows (not separate service outputs)
+> 
+> **For current architecture, see**: `README.md`, `ARCHITECTURE_RULES.md`, `INSTALLATION_GUIDE.md`
+
 ## **📋 Overview**
 
 This document provides a **strict, sequential implementation plan** for building the AIME Backend OCR & Computer Vision Pipeline. The plan follows a **mandatory linear development approach** where each service must be fully completed, tested, and approved before proceeding to the next.
+
+**Note**: This plan reflects the original design. The actual implementation uses a unified pipeline architecture.
 
 **Two-Stage Preprocessing Strategy:**
 

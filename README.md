@@ -11,7 +11,7 @@ AIME Backend is a linear, GPU-accelerated FastAPI pipeline for high-accuracy doc
 * OCR for handwritten + printed text
 * Table detection & reconstruction
 * Signature & checkbox detection
-* Global confidence scoring
+* Structured row/column output
 * Full auditability using file-level IDs
 
 AIME uses a **two-stage preprocessing strategy** to maximize both performance and robustness:
@@ -109,7 +109,7 @@ backend/
 ├── postprocessing/
 │   ├── table_reconstruct.py
 │   ├── field_mapper.py
-│   └── scoring.py
+│   └── api_output_formatter.py  # Final API output shaping
 ├── models/
 │   ├── yolo_weights/
 │   ├── signature_model/
@@ -247,27 +247,37 @@ The unified pipeline orchestrates the complete analysis flow:
    * Handwritten → PARSeq (handwriting)
    * Signature → Presence flag only (no OCR)
    * Checkbox → Presence + checked/unchecked (no OCR)
-3. **Table-aware Row Grouping** - Groups detections into rows using table anchors
-4. **Column Grouping** - Assigns cells to columns based on header positions
+3. **Table-aware Row Grouping** - Groups detections into rows using table anchors and vertical alignment
+4. **Column Grouping** - Assigns cells to columns based on header x-center positions
 5. **Structured Output**:
-   * Row-wise structured JSON
-   * Column-wise structured JSON
-   * Final API output with field mapping
+   * Row-wise structured JSON (source of truth)
+   * Column-wise structured JSON (pivot of row-wise)
+   * Final API output with field mapping (POST /api/analyze)
 
-**Output:**
+**POST /api/analyze Output:**
 
-```
-POST /api/analyze returns:
+```json
 {
   "rows": [
     {
-      "last_name": "...",
-      "first_name": "...",
-      ...
+      "last_name": "Magargee",
+      "first_name": "David",
+      "attendee_type": "Business Guest",
+      "credential": "DO",
+      "state_of_license": "MA",
+      "license_number": "74829",
+      "signature": true,
+      "checkbox": true
     }
   ]
 }
 ```
+
+**Key Features:**
+- **NO NULL IF DATA EXISTS**: PrintedText[0] always wins over HandwrittenText[0]
+- **YOLO-authoritative**: All detection counts come from YOLO stage only
+- **No OCR fallbacks**: Strict class-based routing, no cross-routing
+- **Table-anchored rows**: Table bboxes define row space, not strict boundaries
 
 ---
 
@@ -664,7 +674,12 @@ Unified pipeline endpoint returning dual row-wise and column-wise structured out
 - No tables detected → No PaddleOCR (strict policy)
 
 ### **POST /api/analyze**
-Complete analysis endpoint running all services in sequence with automatic fallback.
+Complete analysis endpoint returning structured row data.
+
+**Architecture:**
+1. Run Unified Pipeline (YOLOv8s → OCR → Row/Column grouping)
+2. Format output using API output formatter
+3. Return structured rows with field names
 
 **Request:**
 ```json
@@ -676,29 +691,37 @@ Complete analysis endpoint running all services in sequence with automatic fallb
 **Response:**
 ```json
 {
-  "file_id": "your_file_id",
-  "preprocessing_applied": true,
-  "pre_0_id": "preprocessing_id",
-  "pre_01_id": null,
-  "canonical_id": "resolved_image_id",
-  "services_used": ["SERVICE_0", "SERVICE_1", "SERVICE_3"],
-  "fallbacks_used": [],
-  "layout_result": {...},
-  "ocr_result": {...},
-  "signature_verification_result": {...},
-  "rowwise_result": {...},
-  "columnwise_result": {...}
+  "rows": [
+    {
+      "last_name": "Magargee",
+      "first_name": "David",
+      "attendee_type": "Business Guest",
+      "credential": "DO",
+      "state_of_license": "MA",
+      "license_number": "74829",
+      "signature": true,
+      "checkbox": true
+    }
+  ]
 }
 ```
 
-**Flow:**
-1. Run SERVICE 1 (YOLOv8s) on original file_id (NO preprocessing)
-2. Evaluate YOLOv8s results
-3. Conditionally trigger SERVICE 0 (basic) or SERVICE 0.1 (advanced) if needed
-4. If preprocessing triggered: rerun SERVICE 1 on processed image
-5. Run SERVICE 3 (OCR pipeline)
-6. Run signature verification
-7. Run unified pipeline (row-wise + column-wise extraction)
+**Pipeline Flow:**
+1. YOLOv8s layout detection (Text_box, Handwritten, Signature, Checkbox, Table)
+2. Class-based OCR routing:
+   - Text_box → PaddleOCR (printed text)
+   - Handwritten → PARSeq (handwriting)
+   - Signature → Presence flag only (no OCR)
+   - Checkbox → Presence + checked/unchecked (no OCR)
+3. Table-aware row grouping (vertical alignment)
+4. Column grouping (header-anchored, x-center assignment)
+5. API output formatting (field mapping with "NO NULL IF DATA EXISTS" rule)
+
+**Output Rules:**
+- **NO NULL IF DATA EXISTS**: For each field, use PrintedText if present, else HandwrittenText, else null
+- **PrintedText[0] always wins** over HandwrittenText[0]
+- **One API row per table row** (header row skipped)
+- **Deterministic field mapping** from column headers
 
 ---
 

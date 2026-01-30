@@ -90,7 +90,9 @@ Class-Aware Column Structure
 
 ## API Response Format
 
-The `/api/analyze/rowwise` endpoint now returns:
+### POST /api/analyze/rowwise
+
+The `/api/analyze/rowwise` endpoint returns dual row-wise and column-wise structured output:
 
 ```json
 {
@@ -119,6 +121,32 @@ The `/api/analyze/rowwise` endpoint now returns:
   "failed": false
 }
 ```
+
+### POST /api/analyze
+
+The main analysis endpoint (`POST /api/analyze`) returns structured row data with field names:
+
+```json
+{
+  "rows": [
+    {
+      "last_name": "Magargee",
+      "first_name": "David",
+      "attendee_type": "Business Guest",
+      "credential": "DO",
+      "state_of_license": "MA",
+      "license_number": "74829",
+      "signature": true,
+      "checkbox": true
+    }
+  ]
+}
+```
+
+**Key Rules:**
+- **NO NULL IF DATA EXISTS**: PrintedText[0] always wins over HandwrittenText[0]
+- One API row per table row (header row skipped)
+- Field mapping from column headers
 
 ## Key Features
 

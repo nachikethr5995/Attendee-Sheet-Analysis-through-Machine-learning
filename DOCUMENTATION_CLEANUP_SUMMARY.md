@@ -1,24 +1,33 @@
 # Documentation Cleanup Summary
 
-## ✅ Files Updated
+## ✅ Files Updated (Latest Round)
 
 1. **README.md** - Updated:
-   - TrOCR → PARSeq references
-   - Removed SERVICE 2 and SERVICE 4 from main flow
-   - Updated folder structure
-   - Updated core technologies list
+   - ✅ POST /api/analyze endpoint documentation with correct response format
+   - ✅ Unified Pipeline workflow description
+   - ✅ Removed SERVICE 2 and SERVICE 4 references
+   - ✅ Updated folder structure
+   - ✅ Cleaned up EfficientNet references
 
 2. **ARCHITECTURE_RULES.md** - Updated:
-   - TrOCR → PARSeq references
-   - Updated routing rules
+   - ✅ TrOCR → PARSeq references
+   - ✅ Updated routing rules
 
 3. **TABLE_ONLY_OCR_VERIFICATION.md** - Updated:
-   - TrOCR → PARSeq references
+   - ✅ TrOCR → PARSeq references
 
 4. **PADDLEOCR_FIX.md** - Updated:
-   - TrOCR → PARSeq references
+   - ✅ TrOCR → PARSeq references
 
 5. **INSTALLATION_GUIDE.md** - Already correct (no TrOCR references)
+
+6. **CLASS_AWARE_COLUMN_AGGREGATION.md** - Updated:
+   - ✅ Added POST /api/analyze endpoint documentation
+   - ✅ Clarified API response formats
+
+7. **IMPLEMENTATION_PLAN.md** - Updated:
+   - ✅ Added legacy document disclaimer
+   - ✅ Noted current architecture differences
 
 ## ⚠️ Files Still Needing Updates
 
